@@ -1,6 +1,7 @@
 // An implementation of the Rosetta Code Lexical Analyzer in C++
 // http://rosettacode.org/wiki/Compiler/lexical_analyzer
 
+#include <charconv>      // std::from_chars
 #include <concepts>
 #include <fstream>       // file_to_string, string_to_file
 #include <functional>    // std::invoke
@@ -12,7 +13,6 @@
 #include <sstream>
 #include <string>
 #include <variant>       // TokenVal
-#include <vector>
 
 using namespace std;
 
@@ -20,10 +20,6 @@ using namespace std;
 // =====================================================================================================================
 // Machinery
 // =====================================================================================================================
-
-// ---------------------------------------------------------
-// Input / Output
-// ---------------------------------------------------------
 string file_to_string (const string& path)
 {
     // Open file
@@ -67,7 +63,7 @@ void with_IO (string source, string destination, F f)
 }
 
 
-// Add escaped newlines and backslashs back in for printing
+// Add escaped newlines and backslashes back in for printing
 string sanitize (string s)
 {
     for (int i = 0; i < s.size(); ++i)
@@ -80,22 +76,24 @@ string sanitize (string s)
 }
 
 
-// ---------------------------------------------------------
-// Scanner
-// ---------------------------------------------------------
 class Scanner
 {
 public:
     const char* pos;
-    int         line = 1;
-    int         col  = 1;
+    int         line   = 1;
+    int         column = 1;
 
-
-    Scanner (const char* source) : pos {source} {}
-
+    Scanner (string_view source) : pos {source.data()} {}
 
     inline char peek ()    { return *pos; }
 
+    void advance ()
+    {
+        if (*pos == '\n')    { ++line; column = 1; }
+        else                 ++column;
+
+        ++pos;
+    }
 
     char next ()
     {
@@ -103,13 +101,10 @@ public:
         return peek();
     }
 
-
-    void advance ()
+    void skip_whitespace ()
     {
-        if (*pos == '\n')    { ++line; col = 1; }
-        else                 ++col;
-
-        ++pos;
+        while (isspace(static_cast<unsigned char>(peek())))
+            advance();
     }
 }; // class Scanner
 
@@ -141,7 +136,7 @@ struct Token
 
 const char* to_cstring (TokenName name)
 {
-    static constexpr const char* s[] =
+    static const char* s[] =
     {
         "Op_multiply", "Op_divide", "Op_mod", "Op_add", "Op_subtract", "Op_negate",
         "Op_less", "Op_lessequal", "Op_greater", "Op_greaterequal", "Op_equal", "Op_notequal",
@@ -153,10 +148,6 @@ const char* to_cstring (TokenName name)
     return s[static_cast<int>(name)];
 }
 
-string to_string (TokenVal v)
-{
-    return holds_alternative<int>(v) ? to_string(get<int>(v)) : get<string>(v);
-}
 
 string to_string (Token t)
 {
@@ -165,53 +156,33 @@ string to_string (Token t)
 
     switch (t.name)
     {
-        case (TokenName::STRING) :
-            out << "String            \"" << sanitize(to_string(t.value)) << "\"\n"; break;
-        case (TokenName::INTEGER)      : out << "Integer           " << left << to_string(t.value) << '\n'; break;
-        case (TokenName::IDENTIFIER)   : out << "Identifier        "         << to_string(t.value) << '\n'; break;
-        case (TokenName::ERROR)        : out << "Error             "         << to_string(t.value) << '\n'; break;
-        case (TokenName::END_OF_INPUT) : out << "End_of_input\n"; break;
-        default                        : out << to_cstring(t.name) << '\n';
+        case (TokenName::IDENTIFIER)   : out << "Identifier        "   << get<string>(t.value);                  break;
+        case (TokenName::INTEGER)      : out << "Integer           "   << left << get<int>(t.value);             break;
+        case (TokenName::STRING)       : out << "String            \"" << sanitize(get<string>(t.value)) << '"'; break;
+        case (TokenName::END_OF_INPUT) : out << "End_of_input";                                                  break;
+        case (TokenName::ERROR)        : out << "Error             "   << get<string>(t.value);                  break;
+        default                        : out << to_cstring(t.name);
     }
 
+    out << '\n';
+
     return out.str();
-}
-
-
-string list_tokens (const ranges::range auto& tokens)
-{
-    string s = "Location  Token name        Value\n"
-               "--------------------------------------\n";
-
-    for (auto t : tokens)    s += to_string(t);
-    return s;
 }
 
 
 // =====================================================================================================================
 // Lexer
 // =====================================================================================================================
-
-// Should follow C++ paradigms, i.e. an object-oriented lexer, not a monadic parser combinator
-// Should reflect the C implementation, but improve upon it, and remain approachable and didactic
-// Should be declarative as feasible
-// Compound patterns can call functions, symbols should use case statements
-
-
-
-
 class Lexer
 {
 public:
     Lexer (string_view source) : s {source.data()}, pre_state {s} {}
 
-
     bool has_more ()    { return s.peek() != '\0'; }
-
 
     Token next_token ()
     {
-        skip_whitespace();
+        s.skip_whitespace();
 
         pre_state = s;
 
@@ -241,7 +212,7 @@ public:
                            if (is_digit(s.peek()))       return integer_lit();
                            return error("Unrecognized character '", s.peek(), "'");
 
-            case '\0' :    return simple_token(TokenName::END_OF_INPUT);
+            case '\0' :    return make_token(TokenName::END_OF_INPUT);
         }
     }
 
@@ -255,35 +226,28 @@ private:
     template <class... Args>
     Token error (Args&&... ostream_args)
     {
-        string code {pre_state.pos, (string::size_type) s.col - pre_state.col};
+        string code {pre_state.pos, (string::size_type) s.column - pre_state.column};
 
         ostringstream msg;
         (msg << ... << ostream_args) << '\n'
-            << string(28, ' ') << "(" << s.line << ", " << s.col << "): " << code;
+            << string(28, ' ') << "(" << s.line << ", " << s.column << "): " << code;
 
         if (s.peek() != '\0')    s.advance();
 
-        return {TokenName::ERROR, msg.str(), pre_state.line, pre_state.col};
+        return make_token(TokenName::ERROR, msg.str());
     }
 
 
-    void skip_whitespace ()
+    inline Token make_token (TokenName name, TokenVal value = 0)
     {
-        while (isspace(static_cast<unsigned char>(s.peek())))
-            s.advance();
-    }
-
-
-    Token simple_token (TokenName name)
-    {
-        return {name, 0, pre_state.line, pre_state.col};
+        return {name, value, pre_state.line, pre_state.column};
     }
 
 
     Token simply (TokenName name)
     {
         s.advance();
-        return simple_token(name);
+        return make_token(name);
     }
 
 
@@ -297,14 +261,13 @@ private:
     Token follow (char expected, TokenName ifyes, TokenName ifno)
     {
         if (s.next() == expected)    return simply(ifyes);
-
-        return simple_token(ifno);
+        else                         return make_token(ifno);
     }
 
 
     Token divide_or_comment ()
     {
-        if (s.next() != '*')    return simple_token(TokenName::OP_DIVIDE);
+        if (s.next() != '*')    return make_token(TokenName::OP_DIVIDE);
 
         while (s.next() != '\0')
         {
@@ -335,7 +298,7 @@ private:
         if (s.next() != '\'')    return error("Multi-character constant");
 
         s.advance();
-        return {TokenName::INTEGER, n, pre_state.line, pre_state.col};
+        return make_token(TokenName::INTEGER, n);
     }
 
 
@@ -363,7 +326,7 @@ private:
             }
 
         s.advance();
-        return {TokenName::STRING, text, pre_state.line, pre_state.col};
+        return make_token(TokenName::STRING, text);
     }
 
 
@@ -378,29 +341,26 @@ private:
 
         while (is_id_end(s.next()))    text += s.peek();
 
-        const auto i = keywords.find(text);
-        if (i != keywords.end())    return {i->second, 0, pre_state.line, pre_state.col};
+        auto i = keywords.find(text);
+        if (i != keywords.end())    return make_token(i->second);
 
-        return {TokenName::IDENTIFIER, text, pre_state.line, pre_state.col};
+        return make_token(TokenName::IDENTIFIER, text);
     }
 
 
     Token integer_lit ()
     {
-        string text (1, s.peek());
-
-        while (is_digit(s.next()))    text += s.peek();
+        while (is_digit(s.next()));
 
         if (is_id_start(s.peek()))
             return error("Invalid number. Starts like a number, but ends in non-numeric characters.");
 
         int n;
 
-        try                     { n = stol(text);                               }
-        catch (out_of_range)    { return error("Number exceeds maximum value"); }
-        catch (invalid_argument)    { return error(text); }
+        auto r = from_chars(pre_state.pos, s.pos, n);
+        if (r.ec == errc::result_out_of_range)    return error("Number exceeds maximum value");
 
-        return {TokenName::INTEGER, n, pre_state.line, pre_state.col};
+        return make_token(TokenName::INTEGER, n);
     }
 }; // class Lexer
 
@@ -423,10 +383,11 @@ int main (int argc, char* argv[])
     with_IO(in, out, [] (string input)
     {
         Lexer lexer {input};
-        vector<Token> tokens;
 
-        while (lexer.has_more())    tokens.push_back(lexer.next_token());
+        string s = "Location  Token name        Value\n"
+                   "--------------------------------------\n";
 
-        return list_tokens(tokens);
+        while (lexer.has_more())    s += to_string(lexer.next_token());
+        return s;
     });
 }
