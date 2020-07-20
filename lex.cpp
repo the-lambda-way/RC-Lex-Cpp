@@ -2,14 +2,12 @@
 // http://rosettacode.org/wiki/Compiler/lexical_analyzer
 
 #include <charconv>      // std::from_chars
-#include <concepts>
 #include <fstream>       // file_to_string, string_to_file
 #include <functional>    // std::invoke
 #include <iomanip>       // std::setw
 #include <ios>           // std::left
 #include <iostream>
 #include <map>           // keywords
-#include <ranges>
 #include <sstream>
 #include <string>
 #include <variant>       // TokenVal
@@ -48,7 +46,6 @@ void string_to_file (const string& path, const string& contents)
 
 
 template <class F>
-    requires invocable<F, string> && same_as<string, invoke_result_t<F, string>>
 void with_IO (string source, string destination, F f)
 {
     string input;
