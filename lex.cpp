@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>       // std::forward
 #include <variant>       // TokenVal
 
 using namespace std;
@@ -47,14 +48,14 @@ void string_to_file (const string& path, string_view contents)
 
 
 template <class F>
-void with_IO (string source, string destination, F f)
+void with_IO (string source, string destination, F&& f)
 {
     string input;
 
     if (source == "stdin")    getline(cin, input);
     else                      input = file_to_string(source);
 
-    string output = invoke(f, input);
+    string output = invoke(forward<F>(f), input);
 
     if (destination == "stdout")    cout << output;
     else                            string_to_file(destination, output);
@@ -81,7 +82,7 @@ public:
     int         line   = 1;
     int         column = 1;
 
-    Scanner (string_view source) : pos {source.data()} {}
+    Scanner (const char* source) : pos {source} {}
 
     inline char peek ()    { return *pos; }
 
@@ -140,7 +141,9 @@ const char* to_cstring (TokenName name)
         "Op_less", "Op_lessequal", "Op_greater", "Op_greaterequal", "Op_equal", "Op_notequal",
         "Op_not", "Op_assign", "Op_and", "Op_or",
         "LeftParen", "RightParen", "LeftBrace", "RightBrace", "Semicolon", "Comma",
-        "Keyword_if", "Keyword_else", "Keyword_while", "Keyword_print", "Keyword_putc"
+        "Keyword_if", "Keyword_else", "Keyword_while", "Keyword_print", "Keyword_putc",
+        "Identifier", "Integer", "String",
+        "End_of_input", "Error"
     };
 
     return s[static_cast<int>(name)];
@@ -174,7 +177,7 @@ string to_string (Token t)
 class Lexer
 {
 public:
-    Lexer (string_view source) : s {source.data()}, pre_state {s} {}
+    Lexer (const char* source) : s {source}, pre_state {s} {}
 
     bool has_more ()    { return s.peek() != '\0'; }
 
@@ -227,7 +230,7 @@ private:
         string code {pre_state.pos, (string::size_type) s.column - pre_state.column};
 
         ostringstream msg;
-        (msg << ... << ostream_args) << '\n'
+        (msg << ... << forward<Args>(ostream_args)) << '\n'
             << string(28, ' ') << "(" << s.line << ", " << s.column << "): " << code;
 
         if (s.peek() != '\0')    s.advance();
@@ -328,9 +331,9 @@ private:
     }
 
 
-    inline bool is_id_start (char c)    { return isalpha(static_cast<unsigned char>(c)) || c == '_'; }
-    inline bool is_id_end   (char c)    { return isalnum(static_cast<unsigned char>(c)) || c == '_'; }
-    inline bool is_digit    (char c)    { return isdigit(static_cast<unsigned char>(c));             }
+    static inline bool is_id_start (char c)    { return isalpha(static_cast<unsigned char>(c)) || c == '_'; }
+    static inline bool is_id_end   (char c)    { return isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+    static inline bool is_digit    (char c)    { return isdigit(static_cast<unsigned char>(c));             }
 
 
     Token identifier ()
@@ -378,9 +381,9 @@ int main (int argc, char* argv[])
     string in  = (argc > 1) ? argv[1] : "stdin";
     string out = (argc > 2) ? argv[2] : "stdout";
 
-    with_IO(in, out, [] (string input)
+    with_IO(in, out, [](string input)
     {
-        Lexer lexer {input};
+        Lexer lexer {input.data()};
 
         string s = "Location  Token name        Value\n"
                    "--------------------------------------\n";
