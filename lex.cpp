@@ -10,7 +10,6 @@
 #include <map>           // keywords
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <utility>       // std::forward
 #include <variant>       // TokenVal
 
@@ -38,7 +37,7 @@ string file_to_string (const string& path)
 }
 
 
-void string_to_file (const string& path, string_view contents)
+void string_to_file (const string& path, string contents)
 {
     ofstream file {path, ios::out | ios::binary};
     if (!file)    throw (errno);
