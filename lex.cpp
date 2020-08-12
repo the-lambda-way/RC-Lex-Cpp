@@ -253,15 +253,13 @@ private:
 
     Token expect (char expected, TokenName name)
     {
-        if (s.next() == expected)    return simply(name);
-        else                         return error("Unrecognized character '", s.peek(), "'");
+        return s.next() == expected ? simply(name) : error("Unrecognized character '", s.peek(), "'");
     }
 
 
     Token follow (char expected, TokenName ifyes, TokenName ifno)
     {
-        if (s.next() == expected)    return simply(ifyes);
-        else                         return make_token(ifno);
+        return s.next() == expected ? simply(ifyes) : make_token(ifno);
     }
 
 
@@ -270,13 +268,11 @@ private:
         if (s.next() != '*')    return make_token(TokenName::OP_DIVIDE);
 
         while (s.next() != '\0')
-        {
             if (s.peek() == '*' && s.next() == '/')
             {
                 s.advance();
                 return next_token();
             }
-        }
 
         return error("End-of-file in comment. Closing comment characters not found.");
     }
