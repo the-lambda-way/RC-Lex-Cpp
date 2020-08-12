@@ -1,6 +1,8 @@
 # RC-Lex-C++
 This is a lexer implementation for a simple, C-like language, created for Rosetta Code. See http://www.rosettacode.org/wiki/Compiler/lexical_analyzer.
 
+Direct link: http://www.rosettacode.org/wiki/Compiler/lexical_analyzer#C.2B.2B
+
 # License
 Copyright (c) 2020 Mike Castillo
 
